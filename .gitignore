@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.vite/
+*.local
+
+# 构建期从 @iconify-json/* 抽出来的图标子集，每次 build/dev 自动重生成
+src/lib/icons/subset.json
+
+# 本地覆盖的环境变量（.env 本身要提交，它是部署契约的一部分）
+.env.local
+.env.*.local
+
+.DS_Store
+*.log

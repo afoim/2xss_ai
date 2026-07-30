@@ -1,0 +1,24 @@
+{
+  // ⚠ Worker 脚本名不允许下划线，只能小写字母、数字、连字符。
+  // 仓库叫 2xss_ai，Worker 只能叫 2xss-ai —— 名字对不上是正常的，别去"修"。
+  // 改了 name 就是发布到**另一个 Worker**；没有 routes 时 wrangler 不接管路由，
+  // 结果是部署成功但域名仍指向旧 Worker，且不报错。
+  "name": "2xss-ai",
+  "compatibility_date": "2026-07-31",
+  "account_id": "879bb5589ed7931a25942359acc50154",
+  "assets": {
+    "directory": "./dist",
+
+    // 与主站的 URL 规范形态一致：无尾斜杠
+    "html_handling": "drop-trailing-slash",
+
+    // **必须是 single-page-application**：客户端路由的深链接（/img2img、/admin）
+    // 在磁盘上没有对应文件，404-page 会让直接刷新变成真 404。
+    // 另外**不要在 public/ 放 _redirects**：Workers 侧会把 SPA 那条
+    // `/* /index.html 200` 判成自环，直接让部署失败（2xss_bbs 上踩过）。
+    "not_found_handling": "single-page-application"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

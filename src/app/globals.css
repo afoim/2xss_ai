@@ -1,0 +1,480 @@
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ── Shell UI ─────────────────────────────────────────────────────────────
+   终端 shell 设计系统：近黑灰阶背景、柔和高对比、实色 1px 边框、零圆角、反色选择。
+   对比度对齐主流暗色模式（VS Code/GitHub/Material）：背景 oklch(0.205)≈#171717，
+   正文 oklch(0.92)≈#e5e5e5，对比约 14:1——护眼且仍满足 WCAG AAA。 */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  /* 零圆角：所有 radius token 归零 */
+  --radius-xs: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --radius-4xl: 0px;
+}
+
+:root {
+  --font-geist-sans: 'Geist Variable', sans-serif;
+  --font-geist-mono: 'Geist Mono Variable', monospace;
+  --background: oklch(0.205 0 0);
+  --foreground: oklch(0.92 0 0);
+  --card: oklch(0.24 0 0);
+  --card-foreground: oklch(0.92 0 0);
+  --popover: oklch(0.26 0 0);
+  --popover-foreground: oklch(0.92 0 0);
+  --primary: oklch(0.92 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.72 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.3 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.34 0 0);
+  --accent-foreground: oklch(0.92 0 0);
+  --destructive: oklch(0.68 0.21 27);
+  --border: oklch(0.37 0 0);
+  --input: oklch(0.42 0 0);
+  --ring: oklch(0.92 0 0);
+  --chart-1: oklch(0.92 0 0);
+  --chart-2: oklch(0.72 0 0);
+  --chart-3: oklch(0.52 0 0);
+  --chart-4: oklch(0.38 0 0);
+  --chart-5: oklch(0.68 0.21 27);
+  --radius: 0px;
+}
+
+/* 全局零圆角：未分层规则在级联中优先于所有 @layer（含 Tailwind utilities），
+   一举压平 rounded-full / rounded-[...] 等任何工具类；
+   内联 style 的圆角（封面制作工具的用户可调圆角）不受影响。 */
+*,
+::before,
+::after {
+  border-radius: 0;
+}
+
+/* 原生 range 滑杆：灰色轨道 + 白色方块推子（终端 fader 风格）。
+   未分层规则压过页面里遗留的 bg-muted / rounded-full / thumb 工具类，全站统一。 */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 16px;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  background: oklch(0.42 0 0);
+  border-radius: 0;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 8px;
+  height: 16px;
+  margin-top: -6px;
+  background: var(--foreground);
+  border: none;
+  border-radius: 0;
+}
+input[type="range"]::-moz-range-track {
+  height: 4px;
+  background: oklch(0.42 0 0);
+  border-radius: 0;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 8px;
+  height: 16px;
+  background: var(--foreground);
+  border: none;
+  border-radius: 0;
+}
+input[type="range"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* 正文图片可点击放大（ImageLightbox 全局监听 .prose 内的 img） */
+.prose img:not([data-no-lightbox]) {
+  cursor: zoom-in;
+}
+
+/* 代码块 —— 头部一行（语言 + copy）+ 代码一行，结构见 render-markdown.ts。
+   chrome **不要**再改回绝对定位压在 pre 角上：pre 自己是 overflow-x:auto 的
+   滚动容器，绝对定位算的是滚动内容的坐标系而不是可视区，横向一滑就被带走，
+   手机上 copy 按钮会滑出屏幕点不到。独立一行没有任何定位，天生免疫。
+   .code-block 接管了原本 .prose pre 的上下外边距（21px），pre 自己清零，
+   否则头部和代码之间会被 pre 的 margin-top 顶出一道缝。 */
+.code-block {
+  margin: 1.3125rem 0;
+}
+.code-block > pre.hljs {
+  margin: 0;
+}
+
+.code-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+  font-family: var(--font-geist-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+}
+
+/* chrome 里的图标。1em 跟着 .code-head 的字号走，颜色跟 currentColor ——
+   iconify 的图标体本来就是 fill="currentColor" */
+.code-icon {
+  width: 1.15em;
+  height: 1.15em;
+  flex: none;
+}
+
+/* 语言标签。没声明语言时 render-markdown 只输出图标不输出文字，
+   copy 靠自己的 margin-left:auto 顶到右边，不依赖它占位 */
+.code-lang {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  text-transform: lowercase;
+}
+
+/* 光有文字容易被当成静态标签，配上图标才像个能点的东西 */
+.code-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 2px 4px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.code-copy:hover,
+.code-copy:focus-visible {
+  color: var(--foreground);
+}
+
+/* 复制成功态：两个图标都在 DOM 里，靠 class 切换显示，
+   监听器就不用拼 DOM（以前那句 btn.textContent = '…' 会把图标一起冲掉） */
+.code-icon-copied {
+  display: none;
+}
+.code-copy.is-copied {
+  color: var(--foreground);
+}
+.code-copy.is-copied .code-icon-copy {
+  display: none;
+}
+.code-copy.is-copied .code-icon-copied {
+  display: block;
+}
+
+/* Cloudflare 边缘把 /posts/* 的 HTML 缓存 300 秒，而 CSS 文件名带内容哈希、
+   部署后立刻是新的 —— 那几分钟里是「旧 HTML + 新 CSS」。旧结构的 chrome 是
+   pre 或 .code-block 的直接子元素，在新样式下会以静态元素混进代码正文里。
+   这里直接藏掉：短暂少个 copy 按钮，好过在代码中间冒出两个词。 */
+pre.hljs > .code-lang,
+pre.hljs > .code-copy,
+.code-block > .code-lang,
+.code-block > .code-copy {
+  display: none;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    @apply font-sans;
+    height: 100%;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+    /* html 是 document.scrollingElement（视口滚动容器），
+       这里的 overflow-x 不会破坏 position: sticky。
+       但 body 和中间 wrapper 绝不能有 overflow-x——否则
+       会创建新的 scroll container，成为 sticky 边界。 */
+  }
+  body {
+    @apply bg-background text-foreground;
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* 终端选区：反色 */
+  ::selection {
+    background: var(--foreground);
+    color: var(--background);
+  }
+
+  /* 焦点：2px 实线白框，无圆角 */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 0;
+  }
+
+  /* 原生 dialog 顶层背板 */
+  dialog::backdrop {
+    background: oklch(0 0 0 / 0.72);
+  }
+
+  /* 方形滚动条：中灰滑块保证在黑底上可读 */
+  * {
+    scrollbar-color: oklch(0.5 0 0) var(--background);
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--background);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: oklch(0.5 0 0);
+    border: 2px solid var(--background);
+    border-radius: 0;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: oklch(0.72 0 0);
+  }
+
+  /* 网格子项默认允许收缩到 0（对抗 CSS Grid 的隐式最小宽度）：
+     display:grid 若没有显式 grid-template-columns（如响应式列数在小屏
+     未达断点、退化成单隐式列时），auto 轨道会用内容的 min-content 撑住
+     最小宽度且不随视口收缩，导致窄屏溢出——不同于 flexbox 的 min-w-0
+     语义还会跨越子元素边界失效。此规则一次性堵死这整类问题：
+     对已用 Tailwind grid-cols-N（本身即 minmax(0,1fr)，天生零底线）的
+     容器是无操作，只在真正需要时兜底，安全且无副作用。 */
+  .grid > * {
+    min-width: 0;
+  }
+
+  /* 长文本（用户名/URL 等无空格可断词的字符串）默认允许在任意位置断行，
+     防止单个不可分割的词把父容器撑宽。 */
+  body {
+    overflow-wrap: break-word;
+  }
+
+  /* 原生 checkbox/radio：白色高亮 */
+  input[type="checkbox"],
+  input[type="radio"],
+  progress {
+    accent-color: var(--foreground);
+  }
+}
+
+/* ── Shell 动效（极简、快速）──────────────────────────────────────────── */
+
+@keyframes shell-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+/* 骨架屏：45° 斜纹缓慢滚动的扫描块。
+   实现：容器做遮罩（overflow hidden），伪元素铺一层斜纹并向左多画一个周期，
+   用 transform 整体平移。斜纹用 14×14 整数瓦片平铺（色标为瓦片百分比），
+   平移一格瓦片（14px）即回到起点——循环逐像素精确，无累积偏移；
+   transform 由合成器驱动，图案不随动画重新光栅化。 */
+.shell-skeleton {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: oklch(0.24 0 0);
+}
+
+.shell-skeleton::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 0 -14px;
+  background-image: linear-gradient(
+    135deg,
+    oklch(0.36 0 0) 25%,
+    oklch(0.24 0 0) 25%,
+    oklch(0.24 0 0) 50%,
+    oklch(0.36 0 0) 50%,
+    oklch(0.36 0 0) 75%,
+    oklch(0.24 0 0) 75%
+  );
+  background-size: 14px 14px;
+  animation: shell-scan 1.2s linear infinite;
+  will-change: transform;
+}
+
+@keyframes shell-scan {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(14px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-skeleton::before {
+    animation: none;
+  }
+}
+
+/* 加载指示器：三个方形点依次点亮（■ □ □ → □ ■ □ → □ □ ■）。
+   占位盒尺寸由外部 size-* 类给定，点宽取盒宽百分比随尺寸缩放；
+   opacity 用跳变色标（无过渡帧），配合三点各错开 1/3 周期。 */
+.shell-spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.shell-spinner > span {
+  width: 26%;
+  aspect-ratio: 1;
+  background: currentColor;
+  animation: shell-spinner-dot 0.9s infinite;
+}
+
+.shell-spinner > span:nth-child(2) {
+  animation-delay: 0.3s;
+}
+
+.shell-spinner > span:nth-child(3) {
+  animation-delay: 0.6s;
+}
+
+@keyframes shell-spinner-dot {
+  0%, 32% { opacity: 1; }
+  33%, 100% { opacity: 0.25; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-spinner > span {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+@keyframes shell-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes shell-slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+@keyframes shell-slide-in-left {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+@keyframes shell-slide-in-top {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(0); }
+}
+@keyframes shell-slide-in-bottom {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+/* 抽屉面板弹出动画：先快后慢 ease-out */
+.shell-slide-right { animation: shell-slide-in-right 200ms cubic-bezier(0, 0.55, 0.15, 1); }
+.shell-slide-left  { animation: shell-slide-in-left  200ms cubic-bezier(0, 0.55, 0.15, 1); }
+.shell-slide-top   { animation: shell-slide-in-top   200ms cubic-bezier(0, 0.55, 0.15, 1); }
+.shell-slide-bottom { animation: shell-slide-in-bottom 200ms cubic-bezier(0, 0.55, 0.15, 1); }
+
+/* 抽屉面板收起动画：与弹出对称 */
+@keyframes shell-slide-out-right { from { transform: translateX(0); } to { transform: translateX(100%); } }
+@keyframes shell-slide-out-left  { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+@keyframes shell-slide-out-top   { from { transform: translateY(0); } to { transform: translateY(-100%); } }
+@keyframes shell-slide-out-bottom { from { transform: translateY(0); } to { transform: translateY(100%); } }
+
+.shell-slide-out-right { animation: shell-slide-out-right 200ms cubic-bezier(0, 0.55, 0.15, 1); }
+.shell-slide-out-left  { animation: shell-slide-out-left  200ms cubic-bezier(0, 0.55, 0.15, 1); }
+.shell-slide-out-top   { animation: shell-slide-out-top   200ms cubic-bezier(0, 0.55, 0.15, 1); }
+.shell-slide-out-bottom { animation: shell-slide-out-bottom 200ms cubic-bezier(0, 0.55, 0.15, 1); }
+
+/* backdrop 背景遮罩：跟随抽屉同节奏淡入淡出 */
+[data-slot="sheet"]::backdrop {
+  background: oklch(0 0 0 / 0.7);
+}
+.shell-slide-right::backdrop,
+.shell-slide-left::backdrop,
+.shell-slide-top::backdrop,
+.shell-slide-bottom::backdrop {
+  animation: shell-backdrop-in 200ms cubic-bezier(0, 0.55, 0.15, 1) forwards;
+}
+.shell-slide-out-right::backdrop,
+.shell-slide-out-left::backdrop,
+.shell-slide-out-top::backdrop,
+.shell-slide-out-bottom::backdrop {
+  animation: shell-backdrop-out 200ms cubic-bezier(0, 0.55, 0.15, 1) forwards;
+}
+@keyframes shell-backdrop-in  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes shell-backdrop-out { from { opacity: 1; } to { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-slide-right,
+  .shell-slide-left,
+  .shell-slide-top,
+  .shell-slide-bottom,
+  .shell-slide-out-right,
+  .shell-slide-out-left,
+  .shell-slide-out-top,
+  .shell-slide-out-bottom {
+    animation: none !important;
+  }
+  .shell-slide-right::backdrop,
+  .shell-slide-left::backdrop,
+  .shell-slide-top::backdrop,
+  .shell-slide-bottom::backdrop,
+  .shell-slide-out-right::backdrop,
+  .shell-slide-out-left::backdrop,
+  .shell-slide-out-top::backdrop,
+  .shell-slide-out-bottom::backdrop {
+    animation: none !important;
+    opacity: 1;
+  }
+  [data-slot="sheet-content"],
+  [data-slot="dialog-content"],
+  [data-slot="dropdown-menu-content"] {
+    animation: none !important;
+  }
+}
