@@ -13,6 +13,7 @@ import {
 } from '@/lib/draw/api/client';
 import { toast } from 'sonner';
 import { Spinner } from '@/components/ui/spinner';
+import { mediaTokenParam, useMediaToken, withFreshMediaToken } from '@/lib/draw/media-token';
 
 // ─── Types ───
 
@@ -88,10 +89,9 @@ function cleanMessages(msgs: AssistantMessage[]) {
 
 // 由输出文件名构造图片 URL（与轮询里 my-queue 的 imageUrl 拼法保持一致）
 function buildAssistantImageUrl(file: string): string {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('forum-auth-token') : null;
   const baseUrl = (typeof window !== 'undefined' ? localStorage.getItem('draw-api-base-url') : null) || 'https://api-ai.acofork.com';
   const filename = file.split('/').pop()?.split('\\').pop() || file;
-  return `${baseUrl}/api/image?filename=${encodeURIComponent(filename)}&format=webp${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+  return `${baseUrl}/api/image?filename=${encodeURIComponent(filename)}&format=webp${mediaTokenParam()}`;
 }
 
 const SUGGESTIONS = [
@@ -154,6 +154,8 @@ export function AiAssistantTab({
 }: {
   onQueueUpdate?: () => void;
 }) {
+  // 订阅媒体令牌：换到手/续期时重渲染，把图片 URL 上的 mt 刷新
+  useMediaToken();
   // ── Core state ──
   const [messages, setMessages] = useState<AssistantMessage[]>([
     {
@@ -249,11 +251,17 @@ export function AiAssistantTab({
   }, [fullscreen]);
 
   // ── Scroll management ──
+  // 滚动目标必须是聊天容器自身。不能用 chatEndRef.scrollIntoView：它会把整条
+  // 祖先滚动链（含网页）一起滚，表现为「始终滚动」滚的是整个页面而不是对话框。
+  const scrollChatToBottom = useCallback(() => {
+    const el = chatContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
+
   // Only auto-scroll when "始终滚动" is enabled AND AI is actively loading
   useEffect(() => {
-    if (alwaysScroll && loading) {
-      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
+    if (alwaysScroll && loading) scrollChatToBottom();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, currentSteps, alwaysScroll, loading]);
 
   // ── Auto-approve / always-scroll persistence ──
@@ -374,8 +382,6 @@ export function AiAssistantTab({
       try {
         const raw = await fetchMyQueue();
         const queueItems = (Array.isArray(raw) ? raw : ((raw as Record<string, unknown>)?.items as Record<string, unknown>[]) || []);
-        const token = localStorage.getItem('forum-auth-token');
-        const baseUrl = (typeof window !== 'undefined' ? localStorage.getItem('draw-api-base-url') : null) || 'https://api-ai.acofork.com';
 
         setAssistantTasks((prev) => {
           const updated = prev.map((task) => {
@@ -411,7 +417,7 @@ export function AiAssistantTab({
               status: newStatus,
               position: match.position ?? null,
               imageUrl: outputFile
-                ? `${baseUrl}/api/image?filename=${encodeURIComponent(outputFile)}&format=webp${token ? `&token=${encodeURIComponent(token)}` : ''}`
+                ? buildAssistantImageUrl(outputFile)
                 : task.imageUrl,
               filename: outputFile || task.filename,
             };
@@ -494,6 +500,8 @@ export function AiAssistantTab({
       persistMessages(updated);
       return updated;
     });
+    // 确认后把视图拉到底，让用户看到卡片进入「提交中」/入队结果（同样只滚聊天容器）
+    setTimeout(scrollChatToBottom, 0);
 
     try {
       // 1. 组装 loras。
@@ -578,7 +586,7 @@ export function AiAssistantTab({
         return updated;
       });
     }
-  }, [mode, startPolling, onQueueUpdate, persistMessages]);
+  }, [mode, startPolling, onQueueUpdate, persistMessages, scrollChatToBottom]);
 
   // ── Handle send ──
   const handleSend = useCallback(async () => {
@@ -639,7 +647,7 @@ export function AiAssistantTab({
         };
       }
 
-      const resp = await assistantChatRequest(payload);
+      const resp = await assistantChatRequest(payload, abortCtrl.signal);
       if (!resp.ok) {
         const body = await resp.json().catch(() => ({}));
         throw new Error(body.detail || body.error || body.message || '请求失败');
@@ -658,6 +666,11 @@ export function AiAssistantTab({
       stepsRef.current = [];
 
       while (true) {
+        // 停止按钮点了要真的停：signal 已中止时即使 reader 没立刻抛错也要退出，
+        // 让下面的 catch 走 AbortError 分支（*[已中断]*）
+        if (abortCtrl.signal.aborted) {
+          throw new DOMException('aborted', 'AbortError');
+        }
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -1033,7 +1046,7 @@ export function AiAssistantTab({
             <div key={i}>
               {msg.role === 'user' ? (
                 <div className="flex justify-end">
-                  <div className="max-w-[75%] bg-primary text-primary-foreground rounded-2xl rounded-br-sm px-3 py-2">
+                  <div data-slot="chat-user-bubble" className="max-w-[75%] bg-primary text-primary-foreground rounded-2xl rounded-br-sm px-3 py-2">
                     <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>
                     {/* 这条消息随附的角色/画风 —— 不显示的话，界面上只有纯文本，
                         AI 却"凭空"知道了角色 */}
@@ -1211,7 +1224,7 @@ export function AiAssistantTab({
                                 {(String(task.status || '') === 'done' || String(task.status) === 'success') && task.imageUrl ? (
                                   <>
                                     <div className="rounded-lg overflow-hidden border bg-muted/30 shadow-sm" style={{ aspectRatio: `${task.width || 896}/${task.height || 1152}`, maxHeight: 400 }}>
-                                      <img key={aiImageRefresh} src={`${task.imageUrl as string}&_t=${aiImageRefresh}`} alt="Result" className="w-full h-full object-contain" loading="lazy" />
+                                      <img key={aiImageRefresh} src={`${withFreshMediaToken(task.imageUrl as string)}&_t=${aiImageRefresh}`} alt="Result" className="w-full h-full object-contain" loading="lazy" />
                                     </div>
                                     <div className="flex items-center gap-2 pt-1">
                                       <button
@@ -1222,7 +1235,7 @@ export function AiAssistantTab({
                                         <Icon icon="mdi:refresh" className="size-3.5" />
                                         刷新图片
                                       </button>
-                                      <a href={task.imageUrl as string} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                                      <a href={withFreshMediaToken(task.imageUrl as string)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
                                         <Icon icon="mdi:open-in-new" className="size-3.5" />
                                         查看原图
                                       </a>
@@ -1237,8 +1250,8 @@ export function AiAssistantTab({
                             ) : msg.imageUrl ? (
                               <>
                                 <div className="rounded-lg overflow-hidden border bg-muted/30 shadow-sm" style={{ aspectRatio: `${args.width || 896}/${args.height || 1152}`, maxHeight: 400 }}>
-                                  <a href={`${msg.imageUrl}&_t=${aiImageRefresh}`} target="_blank" rel="noopener noreferrer">
-                                    <img key={aiImageRefresh} src={`${msg.imageUrl}&_t=${aiImageRefresh}`} alt="Result" className="w-full h-full object-contain" loading="lazy" />
+                                  <a href={`${withFreshMediaToken(msg.imageUrl)}&_t=${aiImageRefresh}`} target="_blank" rel="noopener noreferrer">
+                                    <img key={aiImageRefresh} src={`${withFreshMediaToken(msg.imageUrl)}&_t=${aiImageRefresh}`} alt="Result" className="w-full h-full object-contain" loading="lazy" />
                                   </a>
                                 </div>
                                 <div className="flex items-center gap-2 pt-1">
@@ -1250,7 +1263,7 @@ export function AiAssistantTab({
                                     <Icon icon="mdi:refresh" className="size-3.5" />
                                     刷新图片
                                   </button>
-                                  <a href={msg.imageUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                                  <a href={withFreshMediaToken(msg.imageUrl)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
                                     <Icon icon="mdi:open-in-new" className="size-3.5" />
                                     查看原图
                                   </a>

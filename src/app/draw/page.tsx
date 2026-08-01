@@ -23,6 +23,7 @@ import { fetchMyQueue, fetchWalletBalance, fetchMyImages, deleteMyImage, fetchFe
 import { getCurrentUser, logout as forumLogout } from '@/lib/forum-account';
 import { goAuthorize } from '@/lib/auth-bridge';
 import { withBase } from '@/lib/base-path';
+import { mediaTokenParam, useMediaToken } from '@/lib/draw/media-token';
 import { Spinner } from '@/components/ui/spinner';
 
 type Tab = 'generate' | 'mine' | 'featured';
@@ -389,9 +390,15 @@ function DrawContentInner() {
       {activeTab === 'generate' && (
         <div className="flex items-start gap-2">
           <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-            <SheetTrigger className="inline-flex items-center justify-between gap-2 h-9 px-3 rounded-lg border border-input bg-background text-xs min-w-0 flex-1">
-              {NAV_LABELS[navKey] || navKey}
-              <Icon icon="mdi:chevron-down" className="size-4 opacity-50 shrink-0" />
+            <SheetTrigger className="group inline-flex items-center justify-between gap-2 h-10 px-3 border border-foreground/60 bg-background text-sm min-w-0 flex-1 cursor-pointer transition-colors hover:border-primary hover:text-primary">
+              <span className="flex items-center gap-2 min-w-0">
+                <Icon icon={NAV_ITEMS.find((i) => i.key === navKey)?.icon || 'mdi:apps'} className="size-4 shrink-0 text-foreground/70 group-hover:text-primary" />
+                <span className="truncate">{NAV_LABELS[navKey] || navKey}</span>
+              </span>
+              <span className="inline-flex items-center gap-1 shrink-0 pl-2 border-l border-border/70 font-mono text-xs text-muted-foreground transition-colors group-hover:text-primary">
+                切换
+                <Icon icon="mdi:chevron-down" className="size-5 transition-transform group-hover:translate-y-0.5" />
+              </span>
             </SheetTrigger>
             <SheetContent side="left" className="w-72">
               <SheetHeader>
@@ -961,6 +968,8 @@ function MineContent({
   // 声明成 Promise<void> 会把实参判成不兼容。
   onRefresh: () => Promise<unknown>;
 }) {
+  // 订阅媒体令牌：换到手时重渲染，把 <img src> 上的 mt 补齐
+  useMediaToken();
   const [category, setCategory] = useState<'all' | 'saloon'>('all');
   const [loading, setLoading] = useState(false);
   const [saloonImages, setSaloonImages] = useState<Record<string, unknown>[]>([]);
@@ -1137,10 +1146,8 @@ function MineContent({
 
   const getImageUrl = (path: string) => {
     const baseUrl = typeof window !== 'undefined' ? localStorage.getItem('draw-api-base-url') || 'https://api-ai.acofork.com' : 'https://api-ai.acofork.com';
-    const token = typeof window !== 'undefined' ? localStorage.getItem('forum-auth-token') : null;
-    let url = `${baseUrl}/api/output/file?path=${encodeURIComponent(path)}`;
-    if (token) url += `&token=${encodeURIComponent(token)}`;
-    return url;
+    // 用 15 分钟的媒体令牌，不再把论坛会话令牌拼进 URL
+    return `${baseUrl}/api/output/file?path=${encodeURIComponent(path)}${mediaTokenParam()}`;
   };
 
 
@@ -1455,6 +1462,7 @@ function MineContent({
 
 // ─── Featured Content ───
 function FeaturedContent() {
+  useMediaToken();
   const [images, setImages] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(true);
   const [colCount, setColCount] = useState(4);
@@ -1504,10 +1512,7 @@ function FeaturedContent() {
     const baseUrl = typeof window !== 'undefined'
       ? localStorage.getItem('draw-api-base-url') || 'https://api-ai.acofork.com'
       : 'https://api-ai.acofork.com';
-    const token = typeof window !== 'undefined' ? localStorage.getItem('forum-auth-token') : null;
-    let url = `${baseUrl}/api/output/file?path=${encodeURIComponent(path)}`;
-    if (token) url += `&token=${encodeURIComponent(token)}`;
-    return url;
+    return `${baseUrl}/api/output/file?path=${encodeURIComponent(path)}${mediaTokenParam()}`;
   };
 
   if (loading) {

@@ -247,6 +247,13 @@ pre.hljs > .code-copy,
     color: var(--background);
   }
 
+  /* 反色（primary 底=浅色）上的选区：全局反色选区（浅底+深字）在浅气泡上等于隐身。
+     自己发的消息气泡是 bg-primary，在这里把选区反过来 —— 深底 + 浅字，才看得见 */
+  [data-slot="chat-user-bubble"] ::selection {
+    background: var(--background);
+    color: var(--foreground);
+  }
+
   /* 焦点：2px 实线白框，无圆角 */
   :focus-visible {
     outline: 2px solid var(--ring);

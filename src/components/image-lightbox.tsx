@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Icon } from '@/components/ui/icon';
 import { Spinner } from '@/components/ui/spinner';
+import { ensureMediaToken } from '@/lib/draw/media-token';
 
 type Pt = { x: number; y: number };
 const MIN_SCALE = 0.5;
@@ -209,14 +210,16 @@ export function ImageLightbox({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const handleDownload = useCallback(() => {
+  const handleDownload = useCallback(async () => {
     if (!path) return;
     const baseUrl = typeof window !== 'undefined'
       ? localStorage.getItem('draw-api-base-url') || 'https://api-ai.acofork.com'
       : 'https://api-ai.acofork.com';
-    const token = typeof window !== 'undefined' ? localStorage.getItem('forum-auth-token') : null;
+    // 下载走的是 a.click()，同样带不了 Authorization 头 —— 用媒体令牌。
+    // 这里是点击回调，可以先 await 确保手上有一张（不像渲染期只能同步取）
+    const mt = await ensureMediaToken();
     let downloadUrl = `${baseUrl}/api/output/file?path=${encodeURIComponent(path)}&raw=1`;
-    if (token) downloadUrl += `&token=${encodeURIComponent(token)}`;
+    if (mt) downloadUrl += `&mt=${encodeURIComponent(mt)}`;
     const a = document.createElement('a');
     a.href = downloadUrl;
     a.download = '';
@@ -316,7 +319,7 @@ export function ImageLightbox({
               )}
               <span className="w-px h-4 bg-white/20" />
               <button
-                onClick={(e) => { e.stopPropagation(); handleDownload(); }}
+                onClick={(e) => { e.stopPropagation(); void handleDownload(); }}
                 className="hover:text-white flex items-center gap-1"
                 title="下载原图（不经过 Webp 转换）"
               >

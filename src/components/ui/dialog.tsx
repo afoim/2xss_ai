@@ -119,9 +119,12 @@ function DialogContent({
     <dialog
       ref={dialogRef}
       data-slot="dialog-content"
-      // 面板样式与尺寸都在 <dialog> 元素上，消费者 className 可完全控制（含全屏）
+      // 面板样式与尺寸都在 <dialog> 元素上，消费者 className 可完全控制（含全屏）。
+      // 定位用 fixed 而不是 relative：relative 会让原生 dialog 的 UA 定位回退成
+      // absolute（随网页滚动），弹窗就不再一直居中了（教程弹窗实测随整页滚动）。
+      // fixed 既是定位祖先（close 按钮的 absolute 能锚住），又固定在视口内。
       className={cn(
-        "relative m-auto grid max-h-[85vh] w-full max-w-[calc(100%-2rem)] gap-4 overflow-y-auto border border-foreground/80 bg-background p-4 text-sm text-foreground outline-none backdrop:bg-black/70 sm:max-w-sm [animation:shell-fade-in_100ms_linear]",
+        "fixed m-auto grid max-h-[85vh] w-full max-w-[calc(100%-2rem)] gap-4 overflow-y-auto border border-foreground/80 bg-background p-4 text-sm text-foreground outline-none backdrop:bg-black/70 sm:max-w-sm [animation:shell-fade-in_100ms_linear]",
         className
       )}
       onCancel={(e) => {

@@ -61,6 +61,8 @@ export function LibrarySelector({ open, onOpenChange, mode = 'WAI', onConfirm, i
   // Search
   const [search, setSearch] = useState('');
   const [searchMode, setSearchMode] = useState<'category' | 'character'>('category');
+  // 搜索框引用：点「×」清空后把焦点还给输入框，方便接着打字
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [searchResults, setSearchResults] = useState<{ characters: LibraryItem[]; styles: LibraryItem[] }>({ characters: [], styles: [] });
   const [searchLoading, setSearchLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -282,13 +284,27 @@ export function LibrarySelector({ open, onOpenChange, mode = 'WAI', onConfirm, i
                   className={`h-9 px-3 text-xs transition-colors duration-75 ${searchMode === 'character' ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground hover:bg-foreground hover:text-background'}`}
                 >角色</button>
               </div>
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={searchMode === 'category' ? '搜索分类…' : '搜索角色或画风…'}
-                className="flex-1 h-9 px-3 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
+              <div className="relative flex-1">
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={searchMode === 'category' ? '搜索分类…' : '搜索角色或画风…'}
+                  className="w-full h-9 pl-3 pr-9 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                {/* 一键清除搜索：只在有内容时显示，点「×」清空并让焦点回到输入框 */}
+                {search && (
+                  <button
+                    onClick={() => { setSearch(''); searchInputRef.current?.focus(); }}
+                    className="absolute right-0.5 top-1/2 -translate-y-1/2 p-1 transition-colors duration-75 text-muted-foreground hover:bg-foreground hover:text-background"
+                    title="清除搜索"
+                    aria-label="清除搜索"
+                  >
+                    <Icon icon="mdi:close" className="size-4" />
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Content */}

@@ -403,14 +403,34 @@ export function chatNudge(payload: Record<string, unknown>) {
   });
 }
 
-export function fetchChatPresets() {
-  return drawRequest<{ items: { id: string; name: string; system_prompt: string }[] }>('/api/draw/chat-presets');
+/**
+ * 预设的字段名是 **camelCase 的 `systemPrompt`** —— 库里 98 条存的都是它。
+ * 注意别照抄 `/api/draw/chat` 的 `system_prompt`：那条是 snake_case，两边确实不一样。
+ * 这里仍读两种拼法，是为了兜住可能存在的老数据。
+ */
+export interface ChatPreset {
+  id: string;
+  name: string;
+  systemPrompt: string;
+}
+
+export async function fetchChatPresets(): Promise<{ items: ChatPreset[] }> {
+  const res = await drawRequest<{ items: (Partial<ChatPreset> & { system_prompt?: string })[] }>(
+    '/api/draw/chat-presets',
+  );
+  const items = (res.items || []).map((p) => ({
+    id: String(p.id ?? ''),
+    name: String(p.name ?? ''),
+    systemPrompt: String(p.systemPrompt ?? p.system_prompt ?? ''),
+  }));
+  return { items };
 }
 
 export function saveChatPreset(name: string, systemPrompt: string) {
   return drawRequest<{ ok: boolean; preset?: { id: string } }>('/api/draw/chat-presets', {
     method: 'POST',
-    body: JSON.stringify({ name, system_prompt: systemPrompt }),
+    // 两种拼法都发，免得哪个客户端/后端版本只认其中一种
+    body: JSON.stringify({ name, systemPrompt, system_prompt: systemPrompt }),
   });
 }
 
@@ -433,9 +453,20 @@ export function clearChatHistory() {
   return drawRequest<void>('/api/draw/chat-history', { method: 'DELETE' });
 }
 
+/**
+ * 撤回聊天记录里的第 index 条（0 基，服务端下标）。
+ * role/content 是给服务端做防漂移校验的，对不上它回 409 而不是删错人。
+ */
+export function deleteChatHistoryAt(index: number, role: string, content: string) {
+  return drawRequest<{ ok: boolean; total: number }>('/api/draw/chat-history/delete', {
+    method: 'POST',
+    body: JSON.stringify({ index, role, content }),
+  });
+}
+
 // ── AI Assistant ──
 
-export function assistantChatRequest(payload: Record<string, unknown>) {
+export function assistantChatRequest(payload: Record<string, unknown>, signal?: AbortSignal) {
   const baseUrl = getBaseUrl();
   const token = getToken();
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -444,6 +475,9 @@ export function assistantChatRequest(payload: Record<string, unknown>) {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
+    // signal 不接上的话，聊天框的「停止」按钮 abort 的是一个没挂到请求上的控制器，
+    // 流照常吐，表现为点了没反应
+    signal,
   });
 }
 

@@ -18,8 +18,8 @@ import {
   getBannedUsers, banUser, unbanUser,
   getWallets, setWalletBalance, givePoints, getPlans, savePlan, deletePlan, savePointsConfig, fetchStats,
   fetchRecommendations, resolveRecommendation, resolveRecommendations,
-  getImageUrl,
 } from '@/lib/draw/api/client';
+import { mediaTokenParam, mediaTokenQuery, useMediaToken } from '@/lib/draw/media-token';
 import { toast } from 'sonner';
 import { useWaterfallLayout } from '@/components/draw/use-waterfall-layout';
 import { Spinner } from '@/components/ui/spinner';
@@ -205,23 +205,20 @@ interface AdminImage {
   image2?: string;
 }
 
+// 图片 URL 一律用 15 分钟的媒体令牌，不再把论坛会话令牌拼进 query string
 function getImgUrl(path: string): string {
   const baseUrl = typeof window !== 'undefined' ? localStorage.getItem('draw-api-base-url') || 'https://api-ai.acofork.com' : 'https://api-ai.acofork.com';
-  const token = typeof window !== 'undefined' ? localStorage.getItem('forum-auth-token') : null;
-  let url = `${baseUrl}/api/output/file?path=${encodeURIComponent(path)}`;
-  if (token) url += `&token=${encodeURIComponent(token)}`;
-  return url;
+  return `${baseUrl}/api/output/file?path=${encodeURIComponent(path)}${mediaTokenParam()}`;
 }
 
 function getProxyUrl(path: string): string {
   const baseUrl = typeof window !== 'undefined' ? localStorage.getItem('draw-api-base-url') || 'https://api-ai.acofork.com' : 'https://api-ai.acofork.com';
-  const token = typeof window !== 'undefined' ? localStorage.getItem('forum-auth-token') : null;
-  let url = `${baseUrl}/api/image?filename=${encodeURIComponent(path)}&type=output`;
-  if (token) url += `&token=${encodeURIComponent(token)}`;
-  return url;
+  return `${baseUrl}/api/image?filename=${encodeURIComponent(path)}&type=output${mediaTokenParam()}`;
 }
 
 function ImagesPanel() {
+  // 订阅媒体令牌：换到手时重渲染，把 <img src> 上的 mt 补齐
+  useMediaToken();
   const [images, setImages] = useState<AdminImage[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -506,7 +503,7 @@ function ImagesPanel() {
                 <div>
                   <p className="text-[10px] text-muted-foreground mb-1">原图 1</p>
                   {detailImg.image1 ? (
-                    <img src={`${getBaseUrl()}/api/uploads/${detailImg.image1}`} alt="" className="w-full rounded border" />
+                    <img src={`${getBaseUrl()}/api/uploads/${detailImg.image1}${mediaTokenQuery()}`} alt="" className="w-full rounded border" />
                   ) : <div className="aspect-square bg-muted rounded" />}
                 </div>
                 <div>
@@ -649,6 +646,7 @@ function BannedPanel() {
 // ─── Featured Panel ───
 
 function FeaturedPanel() {
+  useMediaToken();
   const [paths, setPaths] = useState<string[]>([]);
   const [newPath, setNewPath] = useState('');
   const [loading, setLoading] = useState(false);
@@ -829,6 +827,7 @@ function FeaturedPanel() {
 // ─── Recommendations Panel ───
 
 function RecommendationsPanel() {
+  useMediaToken();
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectMode, setSelectMode] = useState(false);

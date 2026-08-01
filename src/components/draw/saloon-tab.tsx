@@ -7,29 +7,71 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { LibrarySelector } from '@/components/draw/library-selector';
+import { mediaTokenParam, useMediaToken, withFreshMediaToken } from '@/lib/draw/media-token';
 import { toast } from 'sonner';
 import { Spinner } from '@/components/ui/spinner';
 import {
   chatRequest, fetchChatPresets, saveChatPreset, deleteChatPreset,
-  fetchChatHistory, appendChatHistory, clearChatHistory,
+  fetchChatHistory, appendChatHistory, clearChatHistory, deleteChatHistoryAt,
   addToQueue, fetchMyQueue, ttsSynthesize,
+  type ChatPreset,
 } from '@/lib/draw/api/client';
 
 interface ChatMessage {
+  /** 稳定 id：撤回会让下标整体前移，所有异步回填（流式、生图轮询）只能按 id 找人 */
+  id: string;
   role: 'user' | 'assistant';
   content: string;
   streaming?: boolean;
   imageUrls?: string[];
   pendingImages?: { itemId: string; status: string }[];
   ttsUrl?: string;
+  /** 已落到服务端聊天记录里 —— 撤回时才需要连带删服务端那条 */
+  persisted?: boolean;
+  /** 发送失败的占位气泡：不进上下文，也没落过盘 */
+  failed?: boolean;
 }
 
 const POLL_INTERVAL = 3000;
 const STORAGE_KEY = 'draw-saloon';
 
+let msgSeq = 0;
+function newMsgId() {
+  msgSeq += 1;
+  return `m${msgSeq}`;
+}
+
+/** 会话上下文 = 现存消息去掉失败占位与空气泡。撤回过的消息已不在 messages 里，自然不会再拼进去 */
+function toHistory(messages: ChatMessage[]) {
+  return messages
+    .filter((m) => !m.failed && m.content.trim())
+    .map((m) => ({ role: m.role as string, content: m.content }));
+}
+
+/**
+ * 撤回按钮：常驻显示，不做 hover 才现身。
+ * 触屏上没有 hover，藏起来等于没有；而这个功能就是给「说错话了赶紧收回」用的。
+ */
+function WithdrawButton({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title="撤回这条消息（不再作为上下文发给模型）"
+      aria-label="撤回这条消息"
+      className="mt-1 size-6 shrink-0 flex items-center justify-center border border-border text-muted-foreground transition-colors hover:bg-foreground hover:text-background disabled:opacity-30 disabled:pointer-events-none"
+    >
+      <Icon icon="mdi:undo-variant" className="size-3.5" />
+    </button>
+  );
+}
+
 export function SaloonTab({ onQueueUpdate }: { onQueueUpdate?: () => void }) {
+  // 订阅媒体令牌：图片/音频 URL 存进 state 后，token 换新时靠它触发重渲染补 mt
+  useMediaToken();
   // ── System prompt / Presets ──
-  const [presets, setPresets] = useState<{ id: string; name: string; system_prompt: string }[]>([]);
+  const [presets, setPresets] = useState<ChatPreset[]>([]);
   const [presetName, setPresetName] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [presetOpen, setPresetOpen] = useState(true);
@@ -53,11 +95,11 @@ export function SaloonTab({ onQueueUpdate }: { onQueueUpdate?: () => void }) {
   const [saloonStyleTags, setSaloonStyleTags] = useState('');
   const [saloonStyleName, setSaloonStyleName] = useState('');
 
-  // ── Queue polling ──
-  const [pendingItemIds, setPendingItemIds] = useState<Map<string, number>>(new Map());
+  // ── Queue polling ── itemId → 该图要回填到哪条消息（按 id，不按下标）
+  const [pendingItemIds, setPendingItemIds] = useState<Map<string, string>>(new Map());
   const pollingRef = useRef<ReturnType<typeof setInterval>>(undefined);
-  const chatHistoryRef = useRef<{ role: string; content: string }[]>([]);
-  const assistantMsgIdxRef = useRef(-1);
+  /** messages 的镜像：sendMessage / handleWithdraw 需要读到最新一份，而不是闭包里的旧值 */
+  const messagesRef = useRef<ChatMessage[]>([]);
 
   // ── Cost tracking ──
   const [llmTokens, setLlmTokens] = useState(0);
@@ -67,6 +109,7 @@ export function SaloonTab({ onQueueUpdate }: { onQueueUpdate?: () => void }) {
 
   // Scroll to bottom when messages change
   useEffect(() => {
+    messagesRef.current = messages;
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
@@ -75,13 +118,15 @@ export function SaloonTab({ onQueueUpdate }: { onQueueUpdate?: () => void }) {
     fetchChatPresets().then((res) => setPresets(res.items || [])).catch(() => {});
     fetchChatHistory().then((data) => {
       if (data?.items?.length) {
-        chatHistoryRef.current = data.items;
         const restored: ChatMessage[] = data.items.map((m) => ({
+          id: newMsgId(),
           role: m.role as 'user' | 'assistant',
           content: m.content,
           imageUrls: [],
           pendingImages: [],
+          persisted: true,
         }));
+        messagesRef.current = restored;
         setMessages(restored);
       }
     }).catch(() => {});
@@ -90,8 +135,8 @@ export function SaloonTab({ onQueueUpdate }: { onQueueUpdate?: () => void }) {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed.systemPrompt) setSystemPrompt(parsed.systemPrompt);
-        if (parsed.presetName) setPresetName(parsed.presetName);
+        if (parsed.systemPrompt) setSystemPrompt(String(parsed.systemPrompt));
+        if (parsed.presetName) setPresetName(String(parsed.presetName));
         if (parsed.saloonMode) setSaloonMode(parsed.saloonMode);
         if (parsed.genEnabled !== undefined) setGenEnabled(parsed.genEnabled);
       }
@@ -134,15 +179,56 @@ export function SaloonTab({ onQueueUpdate }: { onQueueUpdate?: () => void }) {
   }, []);
 
   const handleClearChat = useCallback(async () => {
+    messagesRef.current = [];
     setMessages([]);
     setLlmTokens(0);
     setLlmCost(0);
     setGenCount(0);
     setGenCost(0);
-    chatHistoryRef.current = [];
     try {
       await clearChatHistory();
     } catch {}
+  }, []);
+
+  // ── 撤回单条消息 ──
+  // 移出 messages 即移出上下文（toHistory 只读现存消息），落过盘的还要连带删服务端那条，
+  // 否则刷新页面它又被 fetchChatHistory 拉回来。
+  const handleWithdraw = useCallback(async (id: string) => {
+    const list = messagesRef.current;
+    const i = list.findIndex((m) => m.id === id);
+    if (i < 0) return;
+    const target = list[i];
+
+    // 服务端下标 = 它前面有多少条落过盘的（失败占位不在服务端，不能算进去）
+    const serverIndex = target.persisted
+      ? list.slice(0, i).filter((m) => m.persisted).length
+      : -1;
+
+    // 同步推进镜像，连点两下时第二次才算得对下标
+    messagesRef.current = list.filter((m) => m.id !== id);
+    setMessages((prev) => prev.filter((m) => m.id !== id));
+    // 这条消息上挂着的生图任务不用再等了
+    setPendingItemIds((prev) => {
+      const next = new Map(prev);
+      let changed = false;
+      for (const [itemId, msgId] of prev) {
+        if (msgId === id) { next.delete(itemId); changed = true; }
+      }
+      return changed ? next : prev;
+    });
+
+    if (serverIndex < 0) {
+      toast.success('已撤回');
+      return;
+    }
+    try {
+      await deleteChatHistoryAt(serverIndex, target.role, target.content);
+      toast.success('已撤回');
+    } catch (e) {
+      toast.error('已从当前会话移除，但未能同步到服务器', {
+        description: e instanceof Error ? e.message : '刷新页面后这条可能会回来',
+      });
+    }
   }, []);
 
   // ── Queue polling ──
@@ -155,7 +241,7 @@ export function SaloonTab({ onQueueUpdate }: { onQueueUpdate?: () => void }) {
         setPendingItemIds((prev) => {
           const next = new Map(prev);
           let changed = false;
-          for (const [itemId, msgIdx] of prev) {
+          for (const [itemId, msgId] of prev) {
             const item = queue.find((q: Record<string, unknown>) => String(q.id) === itemId);
             if (!item) continue;
             const status = String(item.status || 'pending');
@@ -168,24 +254,24 @@ export function SaloonTab({ onQueueUpdate }: { onQueueUpdate?: () => void }) {
                 setGenCount((c) => c + 1);
                 setGenCost((c) => c + cost);
               }
-              // Update message with result
-              setMessages((msgs) => {
-                const updated = [...msgs];
-                if (!updated[msgIdx]) return updated;
-                const msg = { ...updated[msgIdx] };
-                const pending = (msg.pendingImages || []).filter((p) => p.itemId !== itemId);
-                msg.pendingImages = pending;
+              // Update message with result（消息可能已被撤回，找不到就当没发生）
+              setMessages((msgs) => msgs.map((m) => {
+                if (m.id !== msgId) return m;
+                const msg = { ...m };
+                msg.pendingImages = (msg.pendingImages || []).filter((p) => p.itemId !== itemId);
                 if (status === 'done') {
                   const files = (item._output_files as string[]) || [];
                   if (files[0]) {
                     const baseUrl = localStorage.getItem('draw-api-base-url') || 'https://api-ai.acofork.com';
-                    const imgUrl = files[0].startsWith('http') ? files[0] : `${baseUrl}${files[0].startsWith('/') ? '' : '/'}${files[0]}`;
+                    // 图片 URL 必须带媒体令牌：/api/output/file 只认 mt，不带就是 401
+                    const imgUrl = files[0].startsWith('http')
+                      ? files[0]
+                      : `${baseUrl}${files[0].startsWith('/') ? '' : '/'}${files[0]}${mediaTokenParam()}`;
                     msg.imageUrls = [...(msg.imageUrls || []), imgUrl];
                   }
                 }
-                updated[msgIdx] = msg;
-                return updated;
-              });
+                return msg;
+              }));
             }
           }
           if (!changed) return prev;
@@ -210,7 +296,7 @@ export function SaloonTab({ onQueueUpdate }: { onQueueUpdate?: () => void }) {
   }, [pendingItemIds.size]);
 
   // ── Submit gen job (called when SSE receives gen_tags) ──
-  const submitGenJob = useCallback(async (tags: string, msgIdx: number) => {
+  const submitGenJob = useCallback(async (tags: string, msgId: string) => {
     try {
       const prompt = [saloonCharTags, tags].filter(Boolean).join(', ');
       const payload: Record<string, unknown> = {
@@ -223,17 +309,15 @@ export function SaloonTab({ onQueueUpdate }: { onQueueUpdate?: () => void }) {
       if (result.item_id) {
         setPendingItemIds((prev) => {
           const next = new Map(prev);
-          next.set(String(result.item_id), msgIdx);
+          next.set(String(result.item_id), msgId);
           return next;
         });
         startQueuePolling();
-        setMessages((msgs) => {
-          const updated = [...msgs];
-          const msg = { ...updated[msgIdx] };
-          msg.pendingImages = [...(msg.pendingImages || []), { itemId: String(result.item_id), status: 'pending' }];
-          updated[msgIdx] = msg;
-          return updated;
-        });
+        setMessages((msgs) => msgs.map((m) => (
+          m.id === msgId
+            ? { ...m, pendingImages: [...(m.pendingImages || []), { itemId: String(result.item_id), status: 'pending' }] }
+            : m
+        )));
       }
     } catch {}
   }, [saloonCharTags, saloonStyleTags, saloonMode, startQueuePolling]);
@@ -251,26 +335,22 @@ export function SaloonTab({ onQueueUpdate }: { onQueueUpdate?: () => void }) {
     setSending(true);
     setErrorText('');
 
-    // Capture the index BEFORE adding messages (state isn't updated yet)
-    const baseMsgCount = messages.length;
-    const assistantIdx = baseMsgCount + 1;
-
     // Add user message + placeholder assistant message
-    const userMsg: ChatMessage = { role: 'user', content: text, imageUrls: [], pendingImages: [] };
-    const assistantMsg: ChatMessage = { role: 'assistant', content: '', streaming: true, imageUrls: [], pendingImages: [] };
-    setMessages((prev) => [...prev, userMsg, assistantMsg]);
-    assistantMsgIdxRef.current = assistantIdx;
+    const userMsg: ChatMessage = { id: newMsgId(), role: 'user', content: text, imageUrls: [], pendingImages: [] };
+    const assistantMsg: ChatMessage = { id: newMsgId(), role: 'assistant', content: '', streaming: true, imageUrls: [], pendingImages: [] };
+    const idx = assistantMsg.id; // 后续所有回填都按 id 找人，撤回导致的下标位移伤不到它
 
-    const currentHistory = [...chatHistoryRef.current, { role: 'user', content: text }];
+    // 上下文由现存消息现算 —— 撤回掉的消息已经不在里面了
+    const currentHistory = [...toHistory(messagesRef.current), { role: 'user', content: text }];
+
+    messagesRef.current = [...messagesRef.current, userMsg, assistantMsg];
+    setMessages((prev) => [...prev, userMsg, assistantMsg]);
 
     // Persist user message
     try {
       await appendChatHistory([{ role: 'user', content: text }]);
+      setMessages((prev) => prev.map((m) => (m.id === userMsg.id ? { ...m, persisted: true } : m)));
     } catch {}
-
-    chatHistoryRef.current = currentHistory;
-
-    const idx = assistantIdx; // stable reference for closures
 
     try {
       const payload: Record<string, unknown> = {
@@ -312,14 +392,9 @@ export function SaloonTab({ onQueueUpdate }: { onQueueUpdate?: () => void }) {
               if (parsed.content !== undefined) {
                 fullText += parsed.content;
                 textContent += parsed.content;
-                const msgIdx = idx;
-                setMessages((prev) => {
-                  const updated = [...prev];
-                  if (updated[msgIdx]) {
-                    updated[msgIdx] = { ...updated[msgIdx], content: updated[msgIdx].content + (parsed.content || '') };
-                  }
-                  return updated;
-                });
+                setMessages((prev) => prev.map((m) => (
+                  m.id === idx ? { ...m, content: m.content + (parsed.content || '') } : m
+                )));
               }
               if (parsed.type === 'gen_tags' && parsed.tags) {
                 genTags = parsed.tags;
@@ -340,13 +415,7 @@ export function SaloonTab({ onQueueUpdate }: { onQueueUpdate?: () => void }) {
       }
 
       // Done streaming
-      setMessages((prev) => {
-        const updated = [...prev];
-        if (updated[idx]) {
-          updated[idx] = { ...updated[idx], streaming: false };
-        }
-        return updated;
-      });
+      setMessages((prev) => prev.map((m) => (m.id === idx ? { ...m, streaming: false } : m)));
 
       // Submit gen job if we got tags
       if (genTags && genEnabled) {
@@ -356,9 +425,9 @@ export function SaloonTab({ onQueueUpdate }: { onQueueUpdate?: () => void }) {
       // Persist assistant message
       const assistantContent = genTags ? textContent : fullText;
       if (assistantContent.trim()) {
-        chatHistoryRef.current = [...chatHistoryRef.current, { role: 'assistant', content: assistantContent }];
         try {
           await appendChatHistory([{ role: 'assistant', content: assistantContent }]);
+          setMessages((prev) => prev.map((m) => (m.id === idx ? { ...m, persisted: true } : m)));
         } catch {}
       }
 
@@ -367,29 +436,21 @@ export function SaloonTab({ onQueueUpdate }: { onQueueUpdate?: () => void }) {
         try {
           const result = await ttsSynthesize({ text: textContent, source: 'saloon' });
           if (result.audio_url) {
-            setMessages((prev) => {
-              const updated = [...prev];
-              if (updated[idx]) {
-                updated[idx] = { ...updated[idx], ttsUrl: result.audio_url };
-              }
-              return updated;
-            });
+            setMessages((prev) => prev.map((m) => (m.id === idx ? { ...m, ttsUrl: result.audio_url } : m)));
           }
         } catch {}
       }
     } catch (e) {
       setErrorText(e instanceof Error ? e.message : '发送失败');
-      setMessages((prev) => {
-        const updated = [...prev];
-        if (updated[idx]) {
-          updated[idx] = { ...updated[idx], streaming: false, content: updated[idx].content || '（发送失败）' };
-        }
-        return updated;
-      });
+      setMessages((prev) => prev.map((m) => (
+        m.id === idx
+          ? { ...m, streaming: false, content: m.content || '（发送失败）', failed: !m.content }
+          : m
+      )));
     } finally {
       setSending(false);
     }
-  }, [input, sending, systemPrompt, genEnabled, saloonMode, saloonCharTags, saloonStyleTags, ttsEnabled, submitGenJob, messages.length]);
+  }, [input, sending, systemPrompt, genEnabled, saloonMode, saloonCharTags, saloonStyleTags, ttsEnabled, submitGenJob]);
 
   // ── Keydown handler ──
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -431,7 +492,8 @@ export function SaloonTab({ onQueueUpdate }: { onQueueUpdate?: () => void }) {
                 onChange={(e) => {
                   if (!e.target.value) return;
                   const p = presets.find((x) => x.id === e.target.value);
-                  if (p) { setPresetName(p.name); setSystemPrompt(p.system_prompt); }
+                  // 兜一层 ?? ''：setSystemPrompt(undefined) 会让下一帧的 .trim() 直接把整页打成 Application Error
+                  if (p) { setPresetName(p.name ?? ''); setSystemPrompt(p.systemPrompt ?? ''); }
                 }}
                 className="flex-1"
                 size="sm"
@@ -462,7 +524,8 @@ export function SaloonTab({ onQueueUpdate }: { onQueueUpdate?: () => void }) {
 
             {/* Actions */}
             <div className="flex gap-2">
-              <Button size="sm" onClick={handleSavePreset} disabled={!presetName.trim() || !systemPrompt.trim()}>保存预设</Button>
+              {/* 渲染路径上的 .trim() 一旦碰到 undefined 就是整页 Application Error，这里不省这两个 || '' */}
+              <Button size="sm" onClick={handleSavePreset} disabled={!(presetName || '').trim() || !(systemPrompt || '').trim()}>保存预设</Button>
               <Button size="sm" variant="outline" onClick={handleNewPreset}>新建</Button>
               <div className="flex-1" />
               <Button size="sm" variant="outline" onClick={handleClearChat}>清空聊天</Button>
@@ -503,8 +566,12 @@ export function SaloonTab({ onQueueUpdate }: { onQueueUpdate?: () => void }) {
             开始与角色对话吧
           </div>
         ) : (
-          messages.map((msg, i) => (
-            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+          messages.map((msg) => (
+            <div key={msg.id} className={`flex items-start gap-1.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              {/* 撤回按钮常驻在气泡外侧：用户消息在左，模型消息在右 */}
+              {msg.role === 'user' && (
+                <WithdrawButton onClick={() => handleWithdraw(msg.id)} disabled={sending || msg.streaming} />
+              )}
               <div className={`max-w-[80%] space-y-1 ${
                 msg.role === 'user'
                   ? 'bg-primary text-primary-foreground rounded-2xl rounded-br-sm px-3 py-2'
@@ -516,8 +583,8 @@ export function SaloonTab({ onQueueUpdate }: { onQueueUpdate?: () => void }) {
                 </p>
                 {/* Images */}
                 {msg.imageUrls?.map((url, j) => (
-                  <a key={j} href={url} target="_blank" rel="noopener noreferrer">
-                    <img src={url} alt="" className="max-w-[180px] rounded-md mt-1 border" loading="lazy" />
+                  <a key={j} href={withFreshMediaToken(url)} target="_blank" rel="noopener noreferrer">
+                    <img src={withFreshMediaToken(url)} alt="" className="max-w-[180px] rounded-md mt-1 border" loading="lazy" />
                   </a>
                 ))}
                 {/* Pending images */}
@@ -535,9 +602,12 @@ export function SaloonTab({ onQueueUpdate }: { onQueueUpdate?: () => void }) {
                 ))}
                 {/* TTS audio */}
                 {msg.ttsUrl && (
-                  <audio controls src={msg.ttsUrl} className="h-8 mt-1 max-w-full" />
+                  <audio controls src={withFreshMediaToken(msg.ttsUrl)} className="h-8 mt-1 max-w-full" />
                 )}
               </div>
+              {msg.role === 'assistant' && (
+                <WithdrawButton onClick={() => handleWithdraw(msg.id)} disabled={sending || msg.streaming} />
+              )}
             </div>
           ))
         )}

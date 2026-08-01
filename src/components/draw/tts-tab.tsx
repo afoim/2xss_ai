@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { drawRequest, uploadTtsRefAudio, getImageUrl, fetchPointsConfig } from '@/lib/draw/api/client';
+import { useMediaToken, withFreshMediaToken } from '@/lib/draw/media-token';
 import { toast } from 'sonner';
 import { Spinner } from '@/components/ui/spinner';
 
@@ -52,6 +53,8 @@ const TAG_GROUPS: TagGroup[] = [
 ];
 
 export function TtsTab() {
+  // 订阅媒体令牌：结果音频 URL 存进 state 后，token 换新时靠它触发重渲染补 mt
+  useMediaToken();
   // Form state
   const [mode, setMode] = useState<Mode>('preset');
   const [speaker, setSpeaker] = useState('mimo_default');
@@ -408,9 +411,9 @@ export function TtsTab() {
           </div>
           {resultUrl ? (
             <div className="space-y-2">
-              <audio controls src={resultUrl} className="w-full h-10" />
+              <audio controls src={withFreshMediaToken(resultUrl)} className="w-full h-10" />
               <div className="flex gap-2">
-                <a href={resultUrl} download="tts-output.wav" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                <a href={withFreshMediaToken(resultUrl)} download="tts-output.wav" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
                   <Icon icon="mdi:download" className="size-4" />
                   下载
                 </a>
