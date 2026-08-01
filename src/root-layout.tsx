@@ -30,8 +30,9 @@ function SiteFooter() {
       <div className="container mx-auto flex flex-col items-center gap-2 px-4 text-sm text-muted-foreground">
         <p>
           &copy; {new Date().getFullYear()} 二叉树树 ·{" "}
-          <a href="https://2x.nz" className="underline hover:text-foreground transition-colors">
-            主站
+          {/* 直接指门户：2x.nz 现在只是重定向壳，/ 会 302 到这里，多一跳还多一个「主站」的错名 */}
+          <a href="https://hub.acofork.com" className="underline hover:text-foreground transition-colors">
+            回到门户
           </a>
           {" · "}
           <a href="https://bbs.acofork.com" className="underline hover:text-foreground transition-colors">
