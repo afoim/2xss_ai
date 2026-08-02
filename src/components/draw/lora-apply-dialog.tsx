@@ -53,6 +53,9 @@ export function LoraApplyForm({ onClose, onViewChange, defaultType = 'character'
   const [submitting, setSubmitting] = useState(false);
   // 提交前预探测：CivitAI 官方分类与所选不一致时的二次确认
   const [confirmMismatch, setConfirmMismatch] = useState<null | { suggested: 'character' | 'style'; tags: string[] }>(null);
+  // 内联校验错误：toast 在 Shell UI 的原生 <dialog>（top layer）里会被遮罩盖住看不见，
+  // 所以必填校验的反馈必须内联展示，否则「提交审核点了没反应」
+  const [errorMsg, setErrorMsg] = useState('');
 
   const [view, setView] = useState<'form' | 'success' | 'my-subs'>('form');
 
@@ -105,9 +108,10 @@ export function LoraApplyForm({ onClose, onViewChange, defaultType = 'character'
 
   async function doSubmit(confirm: boolean, typeOverride?: 'character' | 'style') {
     if (!url.trim() || !name.trim() || !category.trim() || !trigger.trim()) {
-      toast.error('请填写所有必填字段');
+      setErrorMsg('请填写所有必填字段');
       return;
     }
+    setErrorMsg('');
     const effType = typeOverride ?? loraType;
     setSubmitting(true);
     try {
@@ -307,7 +311,7 @@ export function LoraApplyForm({ onClose, onViewChange, defaultType = 'character'
           <input
             type="text"
             value={url}
-            onChange={(e) => { setUrl(e.target.value); setConfirmMismatch(null); }}
+            onChange={(e) => { setUrl(e.target.value); setConfirmMismatch(null); setErrorMsg(''); }}
             placeholder="https://civitai.red/models/2677495/neverness-to-everness-lacrimosa-anima"
             className="w-full h-8 px-2.5 rounded-lg border bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring text-foreground placeholder:text-muted-foreground/60"
           />
@@ -317,7 +321,7 @@ export function LoraApplyForm({ onClose, onViewChange, defaultType = 'character'
           <input
             type="text"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => { setName(e.target.value); setErrorMsg(''); }}
             placeholder="安魂曲"
             className="w-full h-8 px-2.5 rounded-lg border bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring text-foreground placeholder:text-muted-foreground/60"
           />
@@ -334,7 +338,7 @@ export function LoraApplyForm({ onClose, onViewChange, defaultType = 'character'
               <input
                 type="text"
                 value={category}
-                onChange={(e) => setCategory(e.target.value)}
+                onChange={(e) => { setCategory(e.target.value); setErrorMsg(''); }}
                 placeholder="输入新分类名称"
                 className="w-full h-8 px-2.5 rounded-lg border bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring text-foreground placeholder:text-muted-foreground/60"
               />
@@ -359,7 +363,7 @@ export function LoraApplyForm({ onClose, onViewChange, defaultType = 'character'
                     <div className="px-2 py-3 text-xs text-muted-foreground text-center">暂无分类</div>
                   ) : (
                     categoryList.map((cat) => (
-                      <DropdownMenuItem key={cat} onClick={() => setCategory(cat)} className="text-xs">
+                      <DropdownMenuItem key={cat} onClick={() => { setCategory(cat); setErrorMsg(''); }} className="text-xs">
                         {category === cat && <span aria-hidden="true" className="shrink-0 font-mono text-xs">✓</span>}
                         <span className={category === cat ? '' : 'pl-5'}>{cat}</span>
                       </DropdownMenuItem>
@@ -376,7 +380,7 @@ export function LoraApplyForm({ onClose, onViewChange, defaultType = 'character'
             {([{ v: 'character' as const, l: '角色' }, { v: 'style' as const, l: '画风' }] as const).map((lt) => (
               <button
                 key={lt.v}
-                onClick={() => { setLoraType(lt.v); setConfirmMismatch(null); }}
+                onClick={() => { setLoraType(lt.v); setConfirmMismatch(null); setErrorMsg(''); }}
                 className={`flex-1 h-8 text-xs rounded-lg border transition-colors ${
                   loraType === lt.v
                     ? 'border-primary bg-primary text-primary-foreground'
@@ -393,7 +397,7 @@ export function LoraApplyForm({ onClose, onViewChange, defaultType = 'character'
           <input
             type="text"
             value={trigger}
-            onChange={(e) => setTrigger(e.target.value)}
+            onChange={(e) => { setTrigger(e.target.value); setErrorMsg(''); }}
             placeholder="anhunqu"
             className="w-full h-8 px-2.5 rounded-lg border bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring text-foreground placeholder:text-muted-foreground/60"
           />
@@ -433,6 +437,12 @@ export function LoraApplyForm({ onClose, onViewChange, defaultType = 'character'
           </div>
         ) : (
           <>
+            {errorMsg && (
+              <div className="flex items-center gap-1.5 text-xs text-destructive">
+                <Icon icon="mdi:alert-circle-outline" className="size-3.5 shrink-0" />
+                {errorMsg}
+              </div>
+            )}
             <Button onClick={handleSubmit} disabled={submitting} className="w-full h-8 text-xs">
               {submitting && <Spinner className="size-3.5" />}
               提交审核

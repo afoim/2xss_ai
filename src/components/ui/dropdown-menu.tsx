@@ -1,5 +1,4 @@
 import * as React from "react"
-import { createPortal } from "react-dom"
 
 import { cn } from "@/lib/utils"
 
@@ -210,7 +209,13 @@ function DropdownMenuContent({
 
   if (!open) return null
 
-  return createPortal(
+  // 内联渲染（不再 createPortal 到 document.body）：Shell UI 的 Dialog 是原生
+  // <dialog> + showModal()，会进入浏览器 top layer——body 级 fixed 浮层全被它的
+  // ::backdrop 盖住（下拉点不到、toast 看不见）。内联渲染后若父级是弹窗，则与弹窗
+  // 同处 top layer、高于遮罩；非弹窗场景下 position:fixed 同样脱离文档流、不受
+  // 祖先 overflow 裁剪（祖先无 transform/filter 时）。shell-fade-in 只动 opacity，
+  // 不构成 fixed 包含块。
+  return (
     <div
       className="fixed z-50"
       style={{
@@ -233,8 +238,7 @@ function DropdownMenuContent({
       >
         {children}
       </div>
-    </div>,
-    document.body
+    </div>
   )
 }
 
