@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { submitLora, getMyLoraSubmissions, cancelLora, getApproveStatus } from '@/lib/draw/api/client';
 import { toast } from 'sonner';
 import { Spinner } from '@/components/ui/spinner';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface Props {
   open: boolean;
@@ -229,7 +230,17 @@ export function LoraApplyForm({ onClose, onViewChange, defaultType = 'character'
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {mySubsLoading ? (
-            <div className="flex justify-center py-8"><Spinner className="size-5 text-muted-foreground" /></div>
+            <div className="space-y-2" aria-hidden>
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="border border-border rounded-lg p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Skeleton className="h-4 w-28" />
+                    <Skeleton className="h-5 w-12" />
+                  </div>
+                  <Skeleton className="h-3 w-40" />
+                </div>
+              ))}
+            </div>
           ) : mySubs.length === 0 ? (
             <div className="text-xs text-muted-foreground text-center py-8">暂无提交记录</div>
           ) : (
