@@ -38,6 +38,7 @@ const FEATURE_COLORS: Record<string, string> = {
 export function StatsPanel() {
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [income, setIncome] = useState<Record<string, number>>({});
+  const [voucherOutstanding, setVoucherOutstanding] = useState(0);
   const [loading, setLoading] = useState(false);
   const [period, setPeriod] = useState('7d');
   const [chartMetric, setChartMetric] = useState<'calls' | 'cost'>('calls');
@@ -48,6 +49,7 @@ export function StatsPanel() {
       const res = await fetchStats();
       setData(res.stats as Record<string, unknown>);
       setIncome(res.income as Record<string, number> || {});
+      setVoucherOutstanding(Number((res as Record<string, unknown>).voucherOutstanding) || 0);
     } catch {
       toast.error('加载统计失败');
     } finally {
@@ -66,6 +68,7 @@ export function StatsPanel() {
   // 与上面同样先收窄再用：直接写 `st.byModel && ...` 会让整条 JSX 子表达式
   // 的类型退化成 unknown（st 是 Record<string, unknown>），无法赋给 ReactNode。
   const byModel = (st.byModel as Record<string, Record<string, unknown>>) || {};
+  const voucher = (st.voucherStats as Record<string, number>) || {};
 
   const totalFeature = Object.values(feature).reduce((a, b) => a + b, 0);
 
@@ -121,6 +124,23 @@ export function StatsPanel() {
             <KpiCard icon="mdi:cash" iconColor="text-green-500" label="营收" value={income[period] ? `¥${income[period]}` : '-'} sub={points.totalEarned ? `收入 ${points.totalEarned}点` : ''} />
             <KpiCard icon="mdi:account-group-outline" iconColor="text-purple-500" label="活跃用户" value={String(st.totalUsers ?? '-')} sub="唯一用户" />
             <KpiCard icon="mdi:wallet-outline" iconColor="text-pink-500" label="钱包余额" value={String(points.walletBalance ?? '-')} sub="系统总余额" />
+          </div>
+
+          {/* 插队券统计 */}
+          <div className="rounded-lg border p-3 space-y-2">
+            <h4 className="text-xs font-semibold flex items-center gap-1.5">
+              <Icon icon="mdi:ticket-confirmation-outline" className="size-4 text-sky-500" />
+              插队券统计
+              <span className="text-[10px] font-normal text-muted-foreground">（{PERIODS.find((p) => p.key === period)?.label}）</span>
+            </h4>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+              <div className="border rounded px-2 py-1.5"><span className="text-muted-foreground">充值发放</span><br /><span className="inline-flex items-center font-medium"><Icon icon="mdi:ticket-confirmation-outline" className="size-3" />{voucher.granted ?? '-'}</span></div>
+              <div className="border rounded px-2 py-1.5"><span className="text-muted-foreground">插队消耗</span><br /><span className="inline-flex items-center font-medium"><Icon icon="mdi:ticket-confirmation-outline" className="size-3" />{voucher.used ?? '-'}</span></div>
+              <div className="border rounded px-2 py-1.5"><span className="text-muted-foreground">退回</span><br /><span className="inline-flex items-center font-medium"><Icon icon="mdi:ticket-confirmation-outline" className="size-3" />{voucher.refunded ?? '-'}</span></div>
+              <div className="border rounded px-2 py-1.5"><span className="text-muted-foreground">插队次数</span><br />{voucher.skipCalls ?? '-'} 次</div>
+              <div className="border rounded px-2 py-1.5"><span className="text-muted-foreground">当前存量</span><br /><span className="inline-flex items-center font-medium text-sky-600 dark:text-sky-400"><Icon icon="mdi:ticket-confirmation-outline" className="size-3" />{voucherOutstanding ?? 0}</span></div>
+            </div>
+            <p className="text-[10px] text-muted-foreground">发放=爱发电购买入账；退回=未开始生成前撤销/失败原路退回；存量=所有用户钱包当前持有</p>
           </div>
 
           {/* Performance */}
