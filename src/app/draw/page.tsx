@@ -1284,8 +1284,8 @@ function MineContent({
                 {(!item.status || item.status === 'pending' || item.status === 'waiting') && (
                   <>
                     <Icon icon="mdi:clock-outline" className="size-4 text-muted-foreground shrink-0" />
-                    <span className="flex-1">等待中，前面还有 {item.position != null ? Number(item.position) - 1 : 0} 位</span>
-                    {Number(item.position) > 1 && skipVouchers >= Number(item.position) && (
+                    <span className="flex-1">等待中，前面还有 {item.waiting_ahead != null ? Number(item.waiting_ahead) : 0} 位</span>
+                    {Number(item.waiting_ahead) > 0 && skipVouchers >= Number(item.waiting_ahead) && (
                       <button
                         type="button"
                         className={`shrink-0 ${skipConfirmId === Number(item.id) ? 'text-red-500 hover:text-red-400' : 'text-sky-600 dark:text-sky-400 hover:underline'}`}
@@ -1308,7 +1308,7 @@ function MineContent({
                           }
                         }}
                       >
-                        {skipConfirmId === Number(item.id) ? '确认插队？' : `用 ${Number(item.position)} 张券插队`}
+                        {skipConfirmId === Number(item.id) ? '确认插队？' : `用 ${Number(item.waiting_ahead)} 张券插队`}
                       </button>
                     )}
                     <button
