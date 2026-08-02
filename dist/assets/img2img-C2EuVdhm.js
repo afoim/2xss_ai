@@ -1,0 +1,1 @@
+import{j as e}from"./vendor-react-CYu4yjcy.js";import{u as t}from"./use-title-DYdSzVN6.js";function n(){return e.jsxs("main",{className:"container mx-auto px-4 py-8",children:[e.jsx("h1",{className:"text-2xl font-bold mb-4",children:"图生图"}),e.jsx("p",{className:"text-muted-foreground",children:"开发中..."})]})}function s(){return t("AI 图生图"),e.jsx(n,{})}export{s as Component};

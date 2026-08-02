@@ -1,0 +1,1 @@
+import{j as t}from"./vendor-react-CYu4yjcy.js";import{u as e}from"./use-title-DYdSzVN6.js";function o(){return t.jsxs("main",{className:"container mx-auto px-4 py-8",children:[t.jsx("h1",{className:"text-2xl font-bold mb-4",children:"协作者管理"}),t.jsx("p",{className:"text-muted-foreground",children:"开发中..."})]})}function s(){return e("协作者管理"),t.jsx(o,{})}export{s as Component};
