@@ -19,7 +19,7 @@ import { AiAssistantTab } from '@/components/draw/ai-assistant-tab';
 import { ImageLightbox } from '@/components/image-lightbox';
 import { GalleryGate, useRefreshKey } from '@/components/draw/lazy-load-image';
 import { useWaterfallLayout } from '@/components/draw/use-waterfall-layout';
-import { fetchMyQueue, fetchWalletBalance, fetchMyImages, deleteMyImage, fetchFeatured, fetchPlans, fetchPointsConfig, giftPoints, recommendImage, fetchMyRecommendations, addToQueue, fetchForkParams, type ForkParams } from '@/lib/draw/api/client';
+import { fetchMyQueue, fetchWalletBalance, fetchMyImages, deleteMyImage, fetchFeatured, fetchPlans, fetchPointsConfig, giftPoints, recommendImage, fetchMyRecommendations, addToQueue, fetchForkParams, skipQueueItem, type ForkParams } from '@/lib/draw/api/client';
 import { getCurrentUser, logout as forumLogout } from '@/lib/forum-account';
 import { goAuthorize } from '@/lib/auth-bridge';
 import { withBase } from '@/lib/base-path';
@@ -72,6 +72,12 @@ function DrawContentInner() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
+  const [skipVouchers, setSkipVouchers] = useState(0);
+  // 插队券商品配置（来自 points-config 的 pay_categories.voucher）；未启用时保持 null，前端不渲染购买入口
+  const [voucherCfg, setVoucherCfg] = useState<Record<string, unknown> | null>(null);
+  const [voucherLoading, setVoucherLoading] = useState(false);
+  // 插队按钮二次确认（仿退出登录的两步确认）
+  const [skipConfirmId, setSkipConfirmId] = useState<number | null>(null);
   const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [myImages, setMyImages] = useState<Record<string, unknown>[]>([]);
   const [queueItems, setQueueItems] = useState<Record<string, unknown>[]>([]);
@@ -236,8 +242,15 @@ function DrawContentInner() {
       .catch(() => setApiStatus('offline'));
 
     if (token) {
-      fetchWalletBalance().then((r) => setWalletBalance(r.balance)).catch(() => {});
+      fetchWalletBalance().then((r) => { setWalletBalance(r.balance); setSkipVouchers(r.skip_vouchers || 0); }).catch(() => {});
       getCurrentUser().then((u) => setIsAdmin(u.role === 'admin')).catch(() => {});
+      // 插队券商品配置：启用且配置了 voucher 分类才展示购买入口
+      fetchPointsConfig().then((cfg) => {
+        const c = cfg as Record<string, unknown>;
+        const sv = (c.skip_voucher || {}) as Record<string, unknown>;
+        const pc = (c.pay_categories || {}) as Record<string, Record<string, unknown>>;
+        if (sv.enabled === true && pc.voucher) setVoucherCfg(pc.voucher);
+      }).catch(() => {});
       loadQueue().then((interval) => {
         // Request notification permission on first load
         if ('Notification' in window && Notification.permission === 'default') {
@@ -357,6 +370,11 @@ function DrawContentInner() {
               <span className="inline-flex items-center"><Icon icon="mdi:lightning-bolt" className="size-3" />{walletBalance}</span><span className="ml-1 text-[10px] opacity-70">点我充值</span>
             </button>
           )}
+          {isLoggedIn && skipVouchers > 0 && (
+            <button onClick={() => { setWalletOpen(true); setWalletTab('recharge'); }} className="inline-flex items-center gap-0.5 px-2 h-6 rounded-full text-xs font-medium border border-sky-500/40 bg-sky-500/10 text-sky-600 dark:text-sky-400 hover:bg-sky-500/20 transition-colors shrink-0" title="插队券：位置 N 用 N 张券插到队首">
+              <span className="inline-flex items-center"><Icon icon="mdi:ticket-confirmation-outline" className="size-3" />x{skipVouchers}</span>
+            </button>
+          )}
           {isLoggedIn && !logoutConfirm && (
             <button onClick={() => setLogoutConfirm(true)} className="size-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors shrink-0" title="退出登录">
               <Icon icon="mdi:logout" className="size-4" />
@@ -436,7 +454,7 @@ function DrawContentInner() {
           onForkApplied={() => setForkPayload(null)}
         />
       )}
-      {activeTab === 'mine' && <MineContent images={myImages} setImages={setMyImages} queueItems={queueItems} queueErrors={queueErrors} onDismissError={(id) => { setDismissedErrorIds((prev) => new Set(prev).add(String(id))); setQueueErrors((prev) => { const n = {...prev}; delete n[String(id)]; return n; }); }} onRefresh={loadQueue} />}
+      {activeTab === 'mine' && <MineContent images={myImages} setImages={setMyImages} queueItems={queueItems} queueErrors={queueErrors} onDismissError={(id) => { setDismissedErrorIds((prev) => new Set(prev).add(String(id))); setQueueErrors((prev) => { const n = {...prev}; delete n[String(id)]; return n; }); }} onRefresh={loadQueue} skipVouchers={skipVouchers} onSkipDone={() => { fetchWalletBalance().then((r) => { setWalletBalance(r.balance); setSkipVouchers(r.skip_vouchers || 0); }).catch(() => {}); }} />}
       {activeTab === 'featured' && <FeaturedContent />}
 
       {/* Lightbox — shared by Mine + Featured；两处都可复刻（自己的图和精选图都在 fork 的访问白名单里） */}
@@ -549,6 +567,43 @@ function DrawContentInner() {
                     <span className="text-sm font-medium text-amber-600 dark:text-amber-400">立即充值 →</span>
                   )}
                 </button>
+                {voucherCfg && (
+                  <button
+                    onClick={async () => {
+                      if (voucherLoading) return;
+                      setVoucherLoading(true);
+                      try {
+                        const planUrl = String((voucherCfg as { url?: string }).url || '');
+                        if (!planUrl) throw new Error('no voucher plan');
+                        const token = localStorage.getItem('forum-auth-token');
+                        let finalUrl = planUrl;
+                        if (token) {
+                          try {
+                            const payload = JSON.parse(atob(token.split('.')[1]));
+                            if (payload.id) finalUrl = planUrl.replace('remark=1', `remark=${payload.id}`);
+                          } catch {}
+                        }
+                        window.open(finalUrl, '_blank');
+                        setWalletOpen(false);
+                      } catch {} finally { setVoucherLoading(false); }
+                    }}
+                    disabled={voucherLoading}
+                    className="flex w-full items-center justify-between rounded-full border border-sky-500/30 bg-sky-500/5 px-4 py-3 transition-colors hover:bg-sky-500/10 disabled:opacity-50"
+                  >
+                    <div className="text-left">
+                      <div className="text-sm font-medium inline-flex items-center gap-1">
+                        <Icon icon="mdi:ticket-confirmation-outline" className="size-4" />
+                        插队券 x{Number((voucherCfg as { per_sku?: number }).per_sku) || 10}
+                      </div>
+                      <div className="text-xs text-muted-foreground">排第 N 位用 N 张券，立即插到队首</div>
+                    </div>
+                    {voucherLoading ? (
+                      <Spinner className="size-4 text-sky-600 dark:text-sky-400" />
+                    ) : (
+                      <span className="text-sm font-medium text-sky-600 dark:text-sky-400">立即购买 →</span>
+                    )}
+                  </button>
+                )}
                 <p className="text-center text-[10px] text-muted-foreground pt-1">适度娱乐，理性消费</p>
               </div>
             )}
@@ -957,7 +1012,7 @@ function GenerateContent({
 
 // ─── Mine Content ───
 function MineContent({
-  images, setImages, queueItems, queueErrors, onDismissError, onRefresh,
+  images, setImages, queueItems, queueErrors, onDismissError, onRefresh, skipVouchers, onSkipDone,
 }: {
   images: Record<string, unknown>[];
   setImages: (v: Record<string, unknown>[]) => void;
@@ -967,9 +1022,12 @@ function MineContent({
   // loadQueue 返回下次轮询间隔（number），此处所有消费方都丢弃返回值，
   // 声明成 Promise<void> 会把实参判成不兼容。
   onRefresh: () => Promise<unknown>;
+  skipVouchers: number;
+  onSkipDone: () => void;
 }) {
   // 订阅媒体令牌：换到手时重渲染，把 <img src> 上的 mt 补齐
   useMediaToken();
+  const [skipConfirmId, setSkipConfirmId] = useState<number | null>(null);
   const [category, setCategory] = useState<'all' | 'saloon'>('all');
   const [loading, setLoading] = useState(false);
   const [saloonImages, setSaloonImages] = useState<Record<string, unknown>[]>([]);
@@ -1227,6 +1285,32 @@ function MineContent({
                   <>
                     <Icon icon="mdi:clock-outline" className="size-4 text-muted-foreground shrink-0" />
                     <span className="flex-1">等待中，前面还有 {item.position != null ? Number(item.position) - 1 : 0} 位</span>
+                    {Number(item.position) > 1 && skipVouchers >= Number(item.position) && (
+                      <button
+                        type="button"
+                        className={`shrink-0 ${skipConfirmId === Number(item.id) ? 'text-red-500 hover:text-red-400' : 'text-sky-600 dark:text-sky-400 hover:underline'}`}
+                        onClick={async () => {
+                          if (skipConfirmId !== Number(item.id)) {
+                            setSkipConfirmId(Number(item.id));
+                            setTimeout(() => setSkipConfirmId((cur) => (cur === Number(item.id) ? null : cur)), 3000);
+                            return;
+                          }
+                          setSkipConfirmId(null);
+                          try {
+                            await skipQueueItem(Number(item.id));
+                            toast.success('已插到队首，当前任务完成后立即生成');
+                            onRefresh();
+                            onSkipDone();
+                          } catch (e: any) {
+                            toast.error(e?.message || '插队失败');
+                            onRefresh();
+                            onSkipDone();
+                          }
+                        }}
+                      >
+                        {skipConfirmId === Number(item.id) ? '确认插队？' : `用 ${Number(item.position)} 张券插队`}
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="text-red-500 hover:text-red-400 shrink-0"

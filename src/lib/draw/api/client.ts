@@ -122,6 +122,13 @@ export function fetchMyQueue() {
   return drawRequest<{ items: Record<string, unknown>[]; total: number }>('/api/draw/my-queue');
 }
 
+/** 插队券：位置 N 用 N 张券插到队首（2026-08-02） */
+export function skipQueueItem(itemId: number) {
+  return drawRequest<{ ok: boolean; position?: number; skipped_ahead?: number }>(`/api/draw/queue/${itemId}/skip`, {
+    method: 'POST',
+  });
+}
+
 export function clearQueue() {
   return drawRequest<void>('/api/draw/queue', { method: 'DELETE' });
 }
@@ -307,7 +314,7 @@ export function clearMyImages() {
 // ── Wallet ──
 
 export function fetchWalletBalance() {
-  return drawRequest<{ balance: number }>('/api/wallet/balance');
+  return drawRequest<{ balance: number; total_purchased?: number; skip_vouchers?: number }>('/api/wallet/balance');
 }
 
 export function fetchPlans() {
@@ -644,10 +651,10 @@ export function getWallets() {
   return drawRequest<{ items: Record<string, unknown>[] }>('/api/draw/admin/wallets');
 }
 
-export function setWalletBalance(userId: number, balance: number) {
+export function setWalletBalance(userId: number, balance?: number, skipVouchers?: number) {
   return drawRequest<{ ok: boolean }>('/api/draw/admin/wallets/set', {
     method: 'POST',
-    body: JSON.stringify({ user_id: userId, balance }),
+    body: JSON.stringify({ user_id: userId, balance, skip_vouchers: skipVouchers }),
   });
 }
 
@@ -655,6 +662,14 @@ export function givePoints(userId: number | null, points: number) {
   return drawRequest<{ ok: boolean; count: number }>('/api/draw/admin/wallets/give', {
     method: 'POST',
     body: JSON.stringify({ user_id: userId, points }),
+  });
+}
+
+/** 后台发插队券（currency: voucher） */
+export function giveVouchers(userId: number | null, vouchers: number) {
+  return drawRequest<{ ok: boolean; count: number }>('/api/draw/admin/wallets/give', {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId, points: vouchers, currency: 'voucher' }),
   });
 }
 
